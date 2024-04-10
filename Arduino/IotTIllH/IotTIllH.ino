@@ -33,79 +33,10 @@ int sequence = 0;
 void setup() {
   Serial.begin(9600);
 
-  // Initialize WiFi connection
-  // Initialize serial and wait for port to open:
-  Serial.begin(9600);
-  while (!Serial) {
-    ; // wait for serial port to connect. Needed for native USB port only
-  }
-
-  // attempt to connect to WiFi network:
-  Serial.print("Attempting to connect to WPA SSID: ");
-  Serial.println(ssid);
-  while (WiFi.begin(ssid, pass) != WL_CONNECTED) {
-    // failed, retry
-    Serial.print(".");
-    delay(5000);
-  }
-
-  Serial.println("You're connected to the network");
-  Serial.println();
-
-  Serial.println("Adafruit LSM6DS33 Test");
-
-  if (!lsm6ds33.begin_I2C()) {
-    Serial.println("LSM6DS33 nicht gefunden");
-    while (1);
-  }
-  Serial.println("LSM6DS33 gefunden!");
-
-  // You can provide a unique client ID, if not set the library uses Arduino-millis()
-  // Each client must have a unique client ID
-  mqttClient.setId("4242");
-
-  // You can provide a username and password for authentication
-  mqttClient.setUsernamePassword("behringer", "Bcdrf6.x");
-
-  Serial.print("Attempting to connect to the MQTT broker: ");
-  Serial.println(broker);
-
-  if (!mqttClient.connect(broker, port)) {
-    Serial.print("MQTT connection failed! Error code = ");
-    Serial.println(mqttClient.connectError());
-    while (1);
-  }
-
-  Serial.println("You're connected to the MQTT broker!");
-  Serial.println();
-
-  // Make sure the sensor is found, you can also pass in a different i2c
-  // address with tempsensor.begin(0x49) for example
-  if (!tempsensor.begin()) {
-    Serial.println("Couldn't find ADT7410!");
-    while (1);
-  }
-
-  // sensor takes 250 ms to get first readings
-  delay(250);
-
-  // ** Optional **
-  // Can set ADC resolution
-  // ADT7410_13BIT = 13 bits (default)
-  // ADT7410_16BIT = 16 bits
-  tempsensor.setResolution(ADT7410_16BIT);
-  Serial.print("Resolution = ");
-  switch (tempsensor.getResolution()) {
-    case ADT7410_13BIT:
-      Serial.print("13 ");
-      break;
-    case ADT7410_16BIT:
-      Serial.print("16 ");
-      break;
-    default:
-      Serial.print("??");
-  }
-  Serial.println("bits");
+  doWifiConnect();
+  doMqttSetup();
+  doMqttConnect();
+  doSensorSetup();
 }
 
 void sendMqtt(int sequence, String topic, float value, String unit) {
@@ -126,6 +57,56 @@ void sendMqtt(int sequence, String topic, float value, String unit) {
   mqttClient.endMessage();
 }
 
+void doWifiConnect() {
+  Serial.println("Start connecting to WiFi.");
+  if (WiFi.begin(ssid, pass) != WL_CONNECTED) {
+    Serial.print(".");
+    delay(5000);
+  }
+  Serial.println("Connected to WiFi.");
+}
+
+void doMqttSetup() {
+  // You can provide a unique client ID, if not set the library uses Arduino-millis()
+  // Each client must have a unique client ID
+  mqttClient.setId("4264");
+
+  // You can provide a username and password for authentication
+  mqttClient.setUsernamePassword("behringer", "Bcdrf6.x");
+}
+
+void doMqttConnect() {
+  Serial.println("Start connecting to MQTT Broker.");
+  if (!mqttClient.connect(broker, port)) {
+    Serial.print(".");
+    delay(5000);
+  }
+  Serial.println("Connected to MQTT Broker.");
+}
+
+void doSensorSetup() {
+  Serial.println("Adafruit LSM6DS33 Test");
+
+  if (!lsm6ds33.begin_I2C()) {
+    Serial.println("LSM6DS33 nicht gefunden");
+    while (1);
+  }
+  Serial.println("LSM6DS33 gefunden!");
+
+
+  // Make sure the sensor is found, you can also pass in a different i2c
+  // address with tempsensor.begin(0x49) for example
+  if (!tempsensor.begin()) {
+    Serial.println("Couldn't find ADT7410!");
+    while (1);
+  }
+
+  // sensor takes 250 ms to get first readings
+  delay(250);
+
+  tempsensor.setResolution(ADT7410_16BIT);
+}
+
 void loop() {
   // call poll() regularly to allow the library to send MQTT keep alives which
   // avoids being disconnected by the broker
@@ -140,29 +121,26 @@ void loop() {
 
     // Read light sensor value
     sensors_event_t accel;
-    sensors_event_t gyro;
-    sensors_event_t temp;
-    lsm6ds33.getEvent(&accel, &gyro, &temp);
+    sensors_event_t gyro_not_in_use;
+    sensors_event_t temp_not_in_use;
+    lsm6ds33.getEvent(&accel, &gyro_not_in_use, &temp_not_in_use);
 
     float accY = 0;
     float temp = 0;
     for(int i = 0; i < 20; i++) {
-      lsm6ds33.getEvent(&accel, &gyro, &temp);
+      lsm6ds33.getEvent(&accel, &gyro_not_in_use, &temp_not_in_use);
       accY += accel.acceleration.y;
-      temp = tempsensor.readTempC();
+      temp += tempsensor.readTempC();
       delay(5);
     }
     accY = abs(accY / 20);
     accY = accY > 9.81 ? 9.81 : accY;
-    int angle = (int) (asin(accY/9.81)*180/3.1415);
+    float angle = accY > 9.81 ? 90.0 : asin(accY/9.81)*180/3.1415;
 
     temp = temp / 20;
 
-    sendMqtt(sequence, topic + "temp1", tempsensor.readTempC(), "C");
-    sendMqtt(sequence, topic + "temp2", temp.temperature, "C");
-    sendMqtt(sequence, topic + "accX", accel.acceleration.x, "m/s^2");
-    sendMqtt(sequence, topic + "accY", angle, "m/s^2");
-    sendMqtt(sequence, topic + "accZ", accel.acceleration.z, "m/s^2");
+    sendMqtt(sequence, topic + "temp", temp, "C");
+    sendMqtt(sequence, topic + "angle", angle, "°");
 
     sequence++;
   }
