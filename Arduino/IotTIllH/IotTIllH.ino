@@ -27,7 +27,13 @@ const String topic  = "/dhai/Wemding/Behringer/";
 const long interval = 5000;
 unsigned long previousMillis = 0;
 
-int sequence = 0;
+unsigned int sequence = 0;
+
+struct SensorStruct {
+  byte type; // 1 = Temp; 2 = angle
+  float value;
+  unsigned int sequence;
+};
 
 void setup() {
   Serial.begin(9600);
@@ -112,25 +118,25 @@ void doSensorSetup() {
 
 void loop() {
   unsigned long currentMillis = millis();
-  bool connectionLost = false;
+  bool isConnected = true;
 
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi connection lost. Attempting to reconnect...");
     digitalWrite(26, HIGH); // Rote LED ein, wenn keine WiFi-Verbindung
     doWifiConnect();
-    connectionLost = true;
+    isConnected = false;
   }
 
   if (!mqttClient.connected()) {
     Serial.println("MQTT connection lost. Attempting to reconnect...");
     digitalWrite(26, HIGH); // Rote LED ein, wenn keine MQTT-Verbindung
     doMqttConnect();
-    connectionLost = true;
+    isConnected = false;
   }
 
   mqttClient.poll();
 
-  if (!connectionLost) {
+  if (isConnected) {
     digitalWrite(26, LOW); // Rote LED aus, wenn Verbindung OK
   }
 
