@@ -3,7 +3,6 @@
 #include "Adafruit_ADT7410.h"
 #include <Adafruit_LSM6DS33.h>
 #include "arduino_secrets.h"
-#include <ArduinoMqttClient.h>
 #include <WiFiNINA.h>
 
 
@@ -32,6 +31,10 @@ int sequence = 0;
 
 void setup() {
   Serial.begin(9600);
+  while (!Serial) {
+    ; // wait for serial port to connect. Needed for native USB port only
+  }
+  pinMode(26, OUTPUT);
 
   doWifiConnect();
   doMqttSetup();
@@ -42,9 +45,9 @@ void setup() {
 void sendMqtt(int sequence, String topic, float value, String unit) {
   String jsonMsg = "{\"value\": ";
   jsonMsg += value;
-  jsonMsg += ", \"unit\": ";
+  jsonMsg += ", \"unit\": \"";
   jsonMsg += unit;
-  jsonMsg += ", \"sequence\": ";
+  jsonMsg += "\", \"sequence\": ";
   jsonMsg += sequence;
   jsonMsg += "}";
 
@@ -59,7 +62,7 @@ void sendMqtt(int sequence, String topic, float value, String unit) {
 
 void doWifiConnect() {
   Serial.println("Start connecting to WiFi.");
-  if (WiFi.begin(ssid, pass) != WL_CONNECTED) {
+  while (WiFi.begin(ssid, pass) != WL_CONNECTED) {
     Serial.print(".");
     delay(5000);
   }
@@ -77,7 +80,7 @@ void doMqttSetup() {
 
 void doMqttConnect() {
   Serial.println("Start connecting to MQTT Broker.");
-  if (!mqttClient.connect(broker, port)) {
+  while (!mqttClient.connect(broker, port)) {
     Serial.print(".");
     delay(5000);
   }
@@ -108,13 +111,28 @@ void doSensorSetup() {
 }
 
 void loop() {
-  // call poll() regularly to allow the library to send MQTT keep alives which
-  // avoids being disconnected by the broker
+  unsigned long currentMillis = millis();
+  bool connectionLost = false;
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi connection lost. Attempting to reconnect...");
+    digitalWrite(26, HIGH); // Rote LED ein, wenn keine WiFi-Verbindung
+    doWifiConnect();
+    connectionLost = true;
+  }
+
+  if (!mqttClient.connected()) {
+    Serial.println("MQTT connection lost. Attempting to reconnect...");
+    digitalWrite(26, HIGH); // Rote LED ein, wenn keine MQTT-Verbindung
+    doMqttConnect();
+    connectionLost = true;
+  }
+
   mqttClient.poll();
 
-  unsigned long currentMillis = millis();
-
- 
+  if (!connectionLost) {
+    digitalWrite(26, LOW); // Rote LED aus, wenn Verbindung OK
+  }
 
   if (currentMillis - previousMillis >= interval) {
     previousMillis = currentMillis;
